@@ -1,0 +1,14 @@
+--- evolution-data-server-1.10.1/camel/camel-folder-summary.c.camel-folder-summary-crash	2007-05-02 12:46:07.000000000 -0400
++++ evolution-data-server-1.10.1/camel/camel-folder-summary.c	2007-05-02 12:47:34.000000000 -0400
+@@ -2952,7 +2952,10 @@
+ camel_message_info_ptr(const CamelMessageInfo *mi, gint id)
+ {
+ 	if (mi->summary)
+-		return ((CamelFolderSummaryClass *)((CamelObject *)mi->summary)->klass)->info_ptr(mi, id);
++		if (((CamelFolderSummaryClass *)((CamelObject *)mi->summary)->klass)->info_ptr)
++			return ((CamelFolderSummaryClass *)((CamelObject *)mi->summary)->klass)->info_ptr(mi, id);
++		else
++			return info_ptr(mi, id);
+ 	else
+ 		return info_ptr(mi, id);
+ }

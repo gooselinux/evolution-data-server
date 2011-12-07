@@ -1,0 +1,179 @@
+diff -up evolution-data-server-2.28.3/camel/camel-folder-summary.c.summary-mismatch evolution-data-server-2.28.3/camel/camel-folder-summary.c
+--- evolution-data-server-2.28.3/camel/camel-folder-summary.c.summary-mismatch	2010-06-29 11:26:14.000000000 +0200
++++ evolution-data-server-2.28.3/camel/camel-folder-summary.c	2010-06-29 11:27:39.000000000 +0200
+@@ -173,11 +173,11 @@ camel_folder_summary_init (CamelFolderSu
+ 	s->uids = g_ptr_array_new ();
+ 	s->loaded_infos = g_hash_table_new (g_str_hash, g_str_equal);
+ 
+-	p->summary_lock = g_mutex_new();
+-	p->io_lock = g_mutex_new();
+-	p->filter_lock = g_mutex_new();
+-	p->alloc_lock = g_mutex_new();
+-	p->ref_lock = g_mutex_new();
++	g_static_rec_mutex_init (&p->summary_lock);
++	g_static_rec_mutex_init (&p->io_lock);
++	g_static_rec_mutex_init (&p->filter_lock);
++	g_static_rec_mutex_init (&p->alloc_lock);
++	g_static_rec_mutex_init (&p->ref_lock);
+ 
+ 	s->meta_summary = g_malloc0(sizeof(CamelFolderMetaSummary));
+ 
+@@ -244,11 +244,11 @@ camel_folder_summary_finalize (CamelObje
+ 	g_free(s->meta_summary->path);
+ 	g_free(s->meta_summary);
+ 
+-	g_mutex_free(p->summary_lock);
+-	g_mutex_free(p->io_lock);
+-	g_mutex_free(p->filter_lock);
+-	g_mutex_free(p->alloc_lock);
+-	g_mutex_free(p->ref_lock);
++	g_static_rec_mutex_free (&p->summary_lock);
++	g_static_rec_mutex_free (&p->io_lock);
++	g_static_rec_mutex_free (&p->filter_lock);
++	g_static_rec_mutex_free (&p->alloc_lock);
++	g_static_rec_mutex_free (&p->ref_lock);
+ 
+ 	g_free(p);
+ }
+@@ -562,8 +562,6 @@ message_info_from_uid (CamelFolderSummar
+ 		folder_name = s->folder->full_name;
+ 		cdb = s->folder->parent_store->cdb_r;
+ 
+-		CAMEL_SUMMARY_UNLOCK(s, summary_lock);
+-
+ 		data.summary = s;
+ 		data.double_ref = TRUE;
+ 		data.add = FALSE;
+@@ -571,11 +569,10 @@ message_info_from_uid (CamelFolderSummar
+ 		ret = camel_db_read_message_info_record_with_uid (cdb, folder_name, uid, &data, camel_read_mir_callback, &ex);
+ 		if (ret != 0) {
+ 			camel_exception_clear (&ex);
++			CAMEL_SUMMARY_UNLOCK(s, summary_lock);
+ 			return NULL;
+ 		}
+ 
+-		CAMEL_SUMMARY_LOCK(s, summary_lock);
+-
+ 		/* We would have double reffed at camel_read_mir_callback */
+ 		info = g_hash_table_lookup (s->loaded_infos, uid);
+ 
+@@ -5061,3 +5058,21 @@ camel_folder_summary_get_need_preview (C
+ 	return _PRIVATE(summary)->need_preview;
+ }
+ 
++void
++camel_folder_summary_lock_summary (CamelFolderSummary *summary)
++{
++	g_return_if_fail (summary != NULL);
++	g_return_if_fail (CAMEL_IS_FOLDER_SUMMARY (summary));
++
++	CAMEL_SUMMARY_LOCK (summary, summary_lock);
++}
++
++void
++camel_folder_summary_unlock_summary (CamelFolderSummary *summary)
++{
++	g_return_if_fail (summary != NULL);
++	g_return_if_fail (CAMEL_IS_FOLDER_SUMMARY (summary));
++
++	CAMEL_SUMMARY_UNLOCK (summary, summary_lock);
++}
++
+diff -up evolution-data-server-2.28.3/camel/camel-folder-summary.h.summary-mismatch evolution-data-server-2.28.3/camel/camel-folder-summary.h
+--- evolution-data-server-2.28.3/camel/camel-folder-summary.h.summary-mismatch	2010-06-29 11:26:35.000000000 +0200
++++ evolution-data-server-2.28.3/camel/camel-folder-summary.h	2010-06-29 11:27:39.000000000 +0200
+@@ -483,6 +483,9 @@ void camel_message_info_dump (CamelMessa
+ /* Migration code */
+ gint camel_folder_summary_migrate_infos(CamelFolderSummary *s);
+ 
++void camel_folder_summary_lock_summary (CamelFolderSummary *summary);
++void camel_folder_summary_unlock_summary (CamelFolderSummary *summary);
++
+ G_END_DECLS
+ 
+ #endif /* ! _CAMEL_FOLDER_SUMMARY_H */
+diff -up evolution-data-server-2.28.3/camel/camel-private.h.summary-mismatch evolution-data-server-2.28.3/camel/camel-private.h
+--- evolution-data-server-2.28.3/camel/camel-private.h.summary-mismatch	2010-06-29 11:27:06.000000000 +0200
++++ evolution-data-server-2.28.3/camel/camel-private.h	2010-06-29 11:27:39.000000000 +0200
+@@ -118,11 +118,11 @@ struct _CamelFolderSummaryPrivate {
+ 
+ 	struct _CamelIndex *index;
+ 
+-	GMutex *summary_lock;	/* for the summary hashtable/array */
+-	GMutex *io_lock;	/* load/save lock, for access to saved_count, etc */
+-	GMutex *filter_lock;	/* for accessing any of the filtering/indexing stuff, since we share them */
+-	GMutex *alloc_lock;	/* for setting up and using allocators */
+-	GMutex *ref_lock;	/* for reffing/unreffing messageinfo's ALWAYS obtain before summary_lock */
++	GStaticRecMutex summary_lock;	/* for the summary hashtable/array */
++	GStaticRecMutex io_lock;	/* load/save lock, for access to saved_count, etc */
++	GStaticRecMutex filter_lock;	/* for accessing any of the filtering/indexing stuff, since we share them */
++	GStaticRecMutex alloc_lock;	/* for setting up and using allocators */
++	GStaticRecMutex ref_lock;	/* for reffing/unreffing messageinfo's ALWAYS obtain before summary_lock */
+ 	GHashTable *flag_cache;
+ 
+ 	gboolean need_preview;
+@@ -130,9 +130,9 @@ struct _CamelFolderSummaryPrivate {
+ };
+ 
+ #define CAMEL_SUMMARY_LOCK(f, l) \
+-	(g_mutex_lock(((CamelFolderSummary *) (f))->priv->l))
++	(g_static_rec_mutex_lock (&((CamelFolderSummary *) (f))->priv->l))
+ #define CAMEL_SUMMARY_UNLOCK(f, l) \
+-	(g_mutex_unlock(((CamelFolderSummary *) (f))->priv->l))
++	(g_static_rec_mutex_unlock (&((CamelFolderSummary *) (f))->priv->l))
+ 
+ struct _CamelStoreSummaryPrivate {
+ 	GMutex *summary_lock;	/* for the summary hashtable/array */
+diff -up evolution-data-server-2.28.3/camel/providers/local/camel-mbox-summary.c.summary-mismatch evolution-data-server-2.28.3/camel/providers/local/camel-mbox-summary.c
+--- evolution-data-server-2.28.3/camel/providers/local/camel-mbox-summary.c.summary-mismatch	2010-06-29 11:27:24.000000000 +0200
++++ evolution-data-server-2.28.3/camel/providers/local/camel-mbox-summary.c	2010-06-29 11:27:39.000000000 +0200
+@@ -866,6 +866,7 @@ mbox_summary_sync_quick(CamelMboxSummary
+ 	camel_mime_parser_scan_pre_from(mp, TRUE);
+ 	camel_mime_parser_init_with_fd(mp, pfd);
+ 
++	camel_folder_summary_lock_summary (s);
+ 	/* Sync only the changes */
+ 	summary = camel_folder_summary_get_changed ((CamelFolderSummary *)mbs);
+ 	if (summary->len)
+@@ -964,6 +965,7 @@ mbox_summary_sync_quick(CamelMboxSummary
+ 	camel_object_unref((CamelObject *)mp);
+ 
+ 	camel_operation_end(NULL);
++	camel_folder_summary_unlock_summary (s);
+ 
+ 	return 0;
+  error:
+@@ -977,6 +979,7 @@ mbox_summary_sync_quick(CamelMboxSummary
+ 		camel_message_info_free((CamelMessageInfo *)info);
+ 
+ 	camel_operation_end(NULL);
++	camel_folder_summary_unlock_summary (s);
+ 
+ 	return -1;
+ }
+@@ -1090,6 +1093,7 @@ camel_mbox_summary_sync_mbox(CamelMboxSu
+ 	camel_mime_parser_scan_pre_from(mp, TRUE);
+ 	camel_mime_parser_init_with_fd(mp, fd);
+ 
++	camel_folder_summary_lock_summary (s);
+ 	count = camel_folder_summary_count(s);
+ 	for (i = 0; i < count; i++) {
+ 		gint pc = (i + 1) * 100 / count;
+@@ -1254,6 +1258,8 @@ camel_mbox_summary_sync_mbox(CamelMboxSu
+ 	if (touched)
+ 		camel_folder_summary_header_save_to_db (s, ex);
+ 
++	camel_folder_summary_unlock_summary (s);
++
+ 	return 0;
+  error:
+ 	g_free(xevnew);
+@@ -1263,6 +1269,8 @@ camel_mbox_summary_sync_mbox(CamelMboxSu
+ 	if (info)
+ 		camel_message_info_free((CamelMessageInfo *)info);
+ 
++	camel_folder_summary_unlock_summary (s);
++
+ 	return -1;
+ }
+ 

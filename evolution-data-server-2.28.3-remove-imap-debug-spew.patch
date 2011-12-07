@@ -1,0 +1,24 @@
+diff -up evolution-data-server-2.28.3/camel/providers/imap/camel-imap-command.c.remove-imap-debug-spew evolution-data-server-2.28.3/camel/providers/imap/camel-imap-command.c
+--- evolution-data-server-2.28.3/camel/providers/imap/camel-imap-command.c.remove-imap-debug-spew	2010-03-01 07:59:24.000000000 -0500
++++ evolution-data-server-2.28.3/camel/providers/imap/camel-imap-command.c	2010-03-02 10:39:00.844897596 -0500
+@@ -205,7 +205,7 @@ imap_command_start (CamelImapStore *stor
+ 	}
+ 
+ 	/* Send the command */
+-	if (TRUE) {
++	if (camel_verbose_debug) {
+ 		const gchar *mask;
+ 
+ 		if (!strncmp ("LOGIN \"", cmd, 7))
+diff -up evolution-data-server-2.28.3/camel/providers/imap/camel-imap-store.c.remove-imap-debug-spew evolution-data-server-2.28.3/camel/providers/imap/camel-imap-store.c
+--- evolution-data-server-2.28.3/camel/providers/imap/camel-imap-store.c.remove-imap-debug-spew	2010-03-01 07:59:24.000000000 -0500
++++ evolution-data-server-2.28.3/camel/providers/imap/camel-imap-store.c	2010-03-02 10:39:00.845913650 -0500
+@@ -3061,7 +3061,7 @@ camel_imap_store_readline (CamelImapStor
+ 		return -1;
+ 	}
+ 
+-	if (TRUE) {
++	if (camel_verbose_debug) {
+ 		fprintf (stderr, "received: ");
+ 		fwrite (ba->data, 1, ba->len, stderr);
+ 	}

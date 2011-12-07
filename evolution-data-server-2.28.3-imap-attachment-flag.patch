@@ -1,0 +1,107 @@
+diff -up evolution-data-server-2.28.3/camel/camel-mime-message.c.imap-attachment-flag evolution-data-server-2.28.3/camel/camel-mime-message.c
+--- evolution-data-server-2.28.3/camel/camel-mime-message.c.imap-attachment-flag	2010-06-29 11:09:41.000000000 +0200
++++ evolution-data-server-2.28.3/camel/camel-mime-message.c	2010-06-29 11:11:14.000000000 +0200
+@@ -1161,20 +1161,21 @@ camel_mime_message_build_mbox_from (Came
+ static gboolean
+ find_attachment (CamelMimeMessage *msg, CamelMimePart *part, gpointer data)
+ {
+-	const gchar *disp;
++	const CamelContentDisposition *cd;
+ 	gboolean *found = (gboolean *)data;
+ 
+ 	g_return_val_if_fail (part != NULL, FALSE);
+ 
+-	disp = camel_mime_part_get_disposition (part);
++	cd = camel_mime_part_get_content_disposition (part);
+ 
+-	if (disp) {
+-		CamelContentDisposition *cd = camel_content_disposition_decode (disp);
++	if (cd) {
++		const struct _camel_header_param *param;
+ 
+-		if (cd) {
+-			*found = (cd->disposition && g_ascii_strcasecmp (cd->disposition, "attachment") == 0);
++		*found = (cd->disposition && g_ascii_strcasecmp (cd->disposition, "attachment") == 0);
+ 
+-			camel_content_disposition_unref (cd);
++		for (param = cd->params; param && !(*found); param = param->next) {
++			if (param->name && param->value && *param->value && g_ascii_strcasecmp (param->name, "filename") == 0)
++				*found = TRUE;
+ 		}
+ 	}
+ 
+diff -up evolution-data-server-2.28.3/camel/camel-mime-part.c.imap-attachment-flag evolution-data-server-2.28.3/camel/camel-mime-part.c
+--- evolution-data-server-2.28.3/camel/camel-mime-part.c.imap-attachment-flag	2010-06-29 11:10:54.000000000 +0200
++++ evolution-data-server-2.28.3/camel/camel-mime-part.c	2010-06-29 11:11:14.000000000 +0200
+@@ -444,7 +444,7 @@ camel_mime_part_set_disposition (CamelMi
+  *
+  * Get the disposition of the MIME part.
+  *
+- * Returns: the dispisition
++ * Returns: the disposition
+  **/
+ const gchar *
+ camel_mime_part_get_disposition (CamelMimePart *mime_part)
+@@ -455,6 +455,23 @@ camel_mime_part_get_disposition (CamelMi
+ 		return NULL;
+ }
+ 
++/**
++ * camel_mime_part_get_content_disposition:
++ * @mime_part: a #CamelMimePart object
++ *
++ * Get the disposition of the MIME part as a structure.
++ * Returned pointer is owned by #mime_part.
++ *
++ * Returns: the disposition structure
++ **/
++const CamelContentDisposition *
++camel_mime_part_get_content_disposition (CamelMimePart *mime_part)
++{
++	g_return_val_if_fail (mime_part != NULL, NULL);
++
++	return mime_part->disposition;
++}
++
+ /* **** Content-Disposition: filename="xxx" */
+ 
+ /**
+diff -up evolution-data-server-2.28.3/camel/camel-mime-part.h.imap-attachment-flag evolution-data-server-2.28.3/camel/camel-mime-part.h
+--- evolution-data-server-2.28.3/camel/camel-mime-part.h.imap-attachment-flag	2010-06-29 11:10:46.000000000 +0200
++++ evolution-data-server-2.28.3/camel/camel-mime-part.h	2010-06-29 11:11:14.000000000 +0200
+@@ -72,6 +72,7 @@ const     gchar  *camel_mime_part_get_de
+ 
+ void		 camel_mime_part_set_disposition	(CamelMimePart *mime_part, const gchar *disposition);
+ const     gchar  *camel_mime_part_get_disposition	(CamelMimePart *mime_part);
++const CamelContentDisposition *camel_mime_part_get_content_disposition (CamelMimePart *mime_part);
+ 
+ void		 camel_mime_part_set_filename		(CamelMimePart *mime_part, const gchar *filename);
+ const	  gchar  *camel_mime_part_get_filename		(CamelMimePart *mime_part);
+diff -up evolution-data-server-2.28.3/camel/providers/imap/camel-imap-folder.c.imap-attachment-flag evolution-data-server-2.28.3/camel/providers/imap/camel-imap-folder.c
+--- evolution-data-server-2.28.3/camel/providers/imap/camel-imap-folder.c.imap-attachment-flag	2009-08-07 15:20:30.000000000 +0200
++++ evolution-data-server-2.28.3/camel/providers/imap/camel-imap-folder.c	2010-06-29 11:07:41.000000000 +0200
+@@ -3041,6 +3041,8 @@ imap_get_message (CamelFolder *folder, c
+ 
+ done:
+ 	if (msg) {
++		gboolean has_attachment;
++
+ 		/* FIXME, this shouldn't be done this way. */
+ 		camel_medium_set_header (CAMEL_MEDIUM (msg), "X-Evolution-Source", store->base_url);
+ 
+@@ -3059,8 +3061,13 @@ done:
+ 			}
+ 		}
+ 
+-		if ((mi->info.flags & CAMEL_MESSAGE_ATTACHMENTS) && !camel_mime_message_has_attachment (msg)) {
+-			mi->info.flags = mi->info.flags & ~CAMEL_MESSAGE_ATTACHMENTS;
++		has_attachment = camel_mime_message_has_attachment (msg);
++		if (((mi->info.flags & CAMEL_MESSAGE_ATTACHMENTS) && !has_attachment) ||
++		    ((mi->info.flags & CAMEL_MESSAGE_ATTACHMENTS) == 0 && has_attachment)) {
++			if (has_attachment)
++				mi->info.flags = mi->info.flags | CAMEL_MESSAGE_ATTACHMENTS;
++			else
++				mi->info.flags = mi->info.flags & ~CAMEL_MESSAGE_ATTACHMENTS;
+ 			mi->info.dirty = TRUE;
+ 
+ 			if (mi->info.summary)
